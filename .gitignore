@@ -1,0 +1,12 @@
+src/deps
+
+*.BACKUP
+.vs/
+Debug/
+*.asm
+*.sln
+*.obj
+*.psess
+*.vsp
+*.pdb/
+*.pdb
