@@ -107,6 +107,17 @@ static constexpr T _arrlenof (AT (& arr)[N]) {
 }
 #define arrlenof(T, arr) _arrlenof<T>(arr)
 
+static u32 strlen (utf32* str) {
+	u32 ret = 0;
+	while (*str++) ++ret;
+	return ret;
+}
+template <u32 N>
+static u32 strlen (utf32 (& str)[N]) {
+	STATIC_ASSERT(N >= 1);
+	return N -1;
+}
+
 template <typename FUNC>
 struct At_Scope_Exit {
 	FUNC	f;

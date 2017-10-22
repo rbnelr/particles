@@ -48,7 +48,7 @@ rem /main
 	rem /wd4577 noexcept used with no exceptions enabled
 	
 	rem /showIncludes
-	cl.exe -nologo /DRZ_PLATF=1 /DRZ_ARCH=1 !opt! !warn! /I!SRC!include /I!GLFW!include /I!GLAD! /I!STB! !SRC!!proj!.cpp /Fe!ROOT!!proj!.exe /link KERNEL32.lib OPENGL32.lib !GLFW!lib-vc2015/glfw3dll.lib /INCREMENTAL:NO /SUBSYSTEM:CONSOLE /OPT:REF
+	cl.exe -nologo /source-charset:utf-8 /DRZ_PLATF=1 /DRZ_ARCH=1 !opt! !warn! /I!SRC!include /I!GLFW!include /I!GLAD! /I!STB! !SRC!!proj!.cpp /Fe!ROOT!!proj!.exe /link KERNEL32.lib OPENGL32.lib !GLFW!lib-vc2015/glfw3dll.lib /INCREMENTAL:NO /SUBSYSTEM:CONSOLE /OPT:REF
 	
 	del *.obj
 	
@@ -72,7 +72,9 @@ rem /vs
 	rem -Wno-unused-function
 	rem -Wtautological-compare		constant if statements
 	
-	!LLVM!clang++ -std=c++11 -m64 -DRZ_PLATF=1 -DRZ_ARCH=1 !opt! !warn! -I!SRC!include -I!GLFW!include -o !ROOT!!proj!.exe !SRC!!proj!.cpp -lKERNEL32 -lUSER32 -lGDI32 -lSHELL32 -l!GLFW!lib-vc2015/glfw3dll
+	!LLVM!clang++ -std=c++11 -m64 -DRZ_PLATF=1 -DRZ_ARCH=1 !opt! !warn! -I!SRC!include -I!GLFW!include -I!GLAD! -I!STB! -o !ROOT!!proj!.exe !SRC!!proj!.cpp -lKERNEL32 -lUSER32 -lGDI32 -lSHELL32 -l!GLFW!lib-vc2015/glfw3dll
+	
+	rem !LLVM!clang++ -std=c++11 -m64 -DRZ_PLATF=1 -DRZ_ARCH=1 !opt! !warn! -I!SRC!include -I!GLFW!include !SRC!!proj!.cpp -E > out.cpp
 	
 	exit /b
 rem /llvm

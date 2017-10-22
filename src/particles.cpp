@@ -27,9 +27,10 @@ STATIC_ASSERT(sizeof(GLuint) ==		sizeof(u32));
 STATIC_ASSERT(sizeof(GLsizei) ==	sizeof(u32));
 STATIC_ASSERT(sizeof(GLsizeiptr) ==	sizeof(u64));
 
+#define STB_RECT_PACK_IMPLEMENTATION
+#include "stb_rect_pack.h"
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
-//#include "stb_rect_pack.h"
 
 struct File_Data {
 	byte*	data;
@@ -85,61 +86,6 @@ struct Texture {
 		}
 	}
 };
-struct Font {
-	Texture			tex;
-	
-	static constexpr u32 charset_first_char = ' ';
-	static constexpr u32 charset_num_chars = ('~'+1) -charset_first_char;
-	#if 1
-	stbtt_bakedchar		chars[charset_num_chars];
-	int map_char (char c) {
-		dbg_assert((c -charset_first_char) < charset_num_chars);
-		return (s32)(c -charset_first_char);
-	}
-	#else
-	stbtt_packedchar	chars[charset_num_chars];
-	int map_char (char c) {
-		dbg_assert((c -charset_first_char) < charset_num_chars);
-		return (s32)(c -charset_first_char);
-	}
-	#endif
-	
-	bool init () {
-		
-		auto f = load_file("c:/windows/fonts/times.ttf");
-		//auto f = load_file("c:/windows/fonts/arialbd.ttf");
-		//auto f = load_file("c:/windows/fonts/consola.ttf");
-		defer { f.free(); };
-		
-		tex.alloc(512,512);
-		
-		#if 1
-		auto ret = stbtt_BakeFontBitmap(f.data, 0, 64, tex.data, (s32)tex.w,(s32)tex.h, charset_first_char, (s32)charset_num_chars, chars);
-		dbg_assert(ret > 0);
-		#else
-		stbtt_pack_context spc;
-		stbtt_PackBegin(&spc, tex.data, (s32)tex.w,(s32)tex.h, (s32)tex.w, 1, nullptr);
-		
-		//stbtt_PackSetOversampling(&spc, 1,1);
-		
-		stbtt_pack_range ranges[] = {
-			{ 32, charset_first_char, nullptr, charset_num_chars, &chars[0] },
-		};
-		stbtt_PackFontRanges(&spc, f.data, 0, ranges, arrlenof(s32, ranges));
-		
-		stbtt_PackEnd(&spc);
-		#endif
-		
-		tex.inplace_vertical_flip();
-		
-		glBindTexture(GL_TEXTURE_2D, tex.gl);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, tex.w,tex.h, 0, GL_RED, GL_UNSIGNED_BYTE, tex.data);
-		
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL,	0);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL,	0);
-		return true;
-	}
-};
 
 //
 static GLFWwindow*	wnd;
@@ -149,8 +95,6 @@ static iv2			wnd_dim;
 static v2			wnd_dim_aspect;
 static iv2			cursor_pos;
 static s32			scrollwheel_diff;
-
-static Font			font;
 
 #include "buttons.hpp"
 
@@ -580,6 +524,211 @@ R"_SHAD(
 		glBindTexture(GL_TEXTURE_2D, tex.gl);
 	}
 };
+struct Font {
+	Texture					tex;
+	VBO_Pos_Tex_Col			vbo;
+	
+	#define ASCII_FIRST		' '
+	#define ASCII_LAST		'~'
+	enum ascii_e {
+		ASCII_INDX			=0,
+		ASCII_NUM			=(ASCII_LAST -ASCII_FIRST) +1
+	};
+	
+	enum de_e {
+		DE_INDX				=ASCII_INDX +ASCII_NUM,
+		DE_UU				=0,
+		DE_AE				,
+		DE_OE				,
+		DE_UE				,
+		DE_ae				,
+		DE_oe				,
+		DE_ue				,
+		DE_NUM
+	};
+	static constexpr utf32 DE_CHARS[DE_NUM] = {
+		/* DE_UU			*/	U'ß',
+		/* DE_AE			*/	U'Ä',
+		/* DE_OE			*/	U'Ö',
+		/* DE_UE			*/	U'Ü',
+		/* DE_ae			*/	U'ä',
+		/* DE_oe			*/	U'ö',
+		/* DE_ue			*/	U'ü',
+	};
+	
+	enum jp_e {
+		JP_INDX				=DE_INDX +DE_NUM,
+		JP_SPACE			=0,
+		JP_COMMA			,
+		JP_PEROID			,
+		JP_SEP_DOT			,
+		JP_DASH				,
+		JP_UNDERSCORE		,
+		JP_BRACKET_OPEN		,
+		JP_BRACKET_CLOSE	,
+		JP_NUM
+	};
+	static constexpr utf32 JP_CHARS[JP_NUM] = {
+		/* JP_SPACE			*/	U'　',
+		/* JP_COMMA			*/	U'、',
+		/* JP_PEROID		*/	U'。',
+		/* JP_SEP_DOT		*/	U'・',
+		/* JP_DASH			*/	U'ー',
+		/* JP_UNDERSCORE	*/	U'＿',
+		/* JP_BRACKET_OPEN	*/	U'「',
+		/* JP_BRACKET_CLOSE	*/	U'」',
+		
+	};
+	
+	#define JP_HG_FIRST	U'あ'
+	#define JP_HG_LAST	U'ゖ'
+	enum jp_hg_e {
+		JP_HG_INDX		=JP_INDX +JP_NUM,
+		JP_HG_NUM		=(JP_HG_LAST -JP_HG_FIRST) +1
+	};
+	
+	#define TOTAL_CHARS	(JP_HG_INDX +JP_HG_NUM)
+	
+	stbtt_packedchar	chars[TOTAL_CHARS];
+	
+	int map_char (char c) {
+		return (s32)(c -ASCII_FIRST) +ASCII_INDX;
+	}
+	int map_char (utf32 u) {
+		if (u >= ASCII_FIRST && u <= ASCII_LAST) {
+			return map_char((char)u);
+		}
+		switch (u) {
+			case DE_CHARS[DE_UU]:		return DE_UU +DE_INDX;
+			case DE_CHARS[DE_AE]:		return DE_AE +DE_INDX;
+			case DE_CHARS[DE_OE]:		return DE_OE +DE_INDX;
+			case DE_CHARS[DE_UE]:		return DE_UE +DE_INDX;
+			case DE_CHARS[DE_ae]:		return DE_ae +DE_INDX;
+			case DE_CHARS[DE_oe]:		return DE_oe +DE_INDX;
+			case DE_CHARS[DE_ue]:		return DE_ue +DE_INDX;
+			
+			case JP_CHARS[JP_SPACE			]:	return JP_SPACE			+JP_INDX;
+			case JP_CHARS[JP_COMMA			]:	return JP_COMMA			+JP_INDX;
+			case JP_CHARS[JP_PEROID			]:	return JP_PEROID		+JP_INDX;
+			case JP_CHARS[JP_SEP_DOT		]:	return JP_SEP_DOT		+JP_INDX;
+			case JP_CHARS[JP_DASH			]:	return JP_DASH			+JP_INDX;
+			case JP_CHARS[JP_UNDERSCORE		]:	return JP_UNDERSCORE	+JP_INDX;
+			case JP_CHARS[JP_BRACKET_OPEN	]:	return JP_BRACKET_OPEN	+JP_INDX;
+			case JP_CHARS[JP_BRACKET_CLOSE	]:	return JP_BRACKET_CLOSE	+JP_INDX;
+			
+		}
+		if (u >= JP_HG_FIRST && u <= JP_HG_LAST) {
+			return (s32)(u -JP_HG_FIRST) +JP_HG_INDX;
+		}
+		
+		dbg_assert(false, "Char '%c' [%x] missing in font", u, u);
+		return map_char('!'); // missing char
+	}
+	
+	bool init (u32 fontsize=16) {
+		
+		vbo.init();
+		
+		//auto f = load_file("c:/windows/fonts/times.ttf");
+		//auto f = load_file("c:/windows/fonts/arialbd.ttf");
+		auto f = load_file("c:/windows/fonts/consola.ttf");
+		defer { f.free(); };
+		
+		auto jp_f = load_file("c:/windows/fonts/meiryo.ttc");
+		defer { jp_f.free(); };
+		
+		bool big = 0;
+		
+		u32 texw, texh;
+		f32 sz, jpsz;
+		switch (fontsize) {
+			case 16:	sz=16; jpsz=24;	texw=256;texh=128+16;	break;
+			case 42:	sz=42; jpsz=64;	texw=512;texh=512-128;	break;
+			default: dbg_assert(false, "not implemented");
+		}
+		tex.alloc(texw, texh);
+		
+		stbtt_pack_context spc;
+		stbtt_PackBegin(&spc, tex.data, (s32)tex.w,(s32)tex.h, (s32)tex.w, 1, nullptr);
+		
+		//stbtt_PackSetOversampling(&spc, 1,1);
+		
+		
+		stbtt_pack_range ranges[] = {
+			{ sz, ASCII_FIRST, nullptr, ASCII_NUM, &chars[ASCII_INDX] },
+			{ sz, 0, (int*)&DE_CHARS, DE_NUM, &chars[DE_INDX] },
+		};
+		dbg_assert( stbtt_PackFontRanges(&spc, f.data, 0, ranges, arrlenof(s32, ranges)) > 0);
+		
+		
+		stbtt_pack_range ranges_jp[] = {
+			{ jpsz, 0, (int*)&JP_CHARS, JP_NUM, &chars[JP_INDX] },
+			{ jpsz, JP_HG_FIRST, nullptr, JP_HG_NUM, &chars[JP_HG_INDX] },
+		};
+		dbg_assert( stbtt_PackFontRanges(&spc, jp_f.data, 0, ranges_jp, arrlenof(s32, ranges_jp)) > 0);
+		
+		stbtt_PackEnd(&spc);
+		
+		tex.inplace_vertical_flip();
+		
+		glBindTexture(GL_TEXTURE_2D, tex.gl);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, tex.w,tex.h, 0, GL_RED, GL_UNSIGNED_BYTE, tex.data);
+		
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL,	0);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL,	0);
+		return true;
+	}
+	
+	void draw_text (Basic_Shader cr shad, utf32* text, v2 pos_screen, v4 col) {
+		
+		v2 pos = v2(pos_screen.x, -pos_screen.y);
+		
+		constexpr v2 _quad[] = {
+			v2(1,0),
+			v2(1,1),
+			v2(0,0),
+			v2(0,0),
+			v2(1,1),
+			v2(0,1),
+		};
+		
+		u32 text_len = strlen(text);
+		
+		auto text_data = array<VBO_Pos_Tex_Col::V>::malloc( text_len * 6   +6);
+		
+		utf32* cur = &text[0];
+		auto* out = &text_data[0];
+		
+		while (cur != &text[text_len]) {
+			
+			stbtt_aligned_quad quad;
+			
+			stbtt_GetPackedQuad(chars, (s32)tex.w,(s32)tex.h, map_char(*cur++),
+					&pos.x,&pos.y, &quad, 1);
+			
+			for (u32 j=0; j<6; ++j) {
+				out->pos =	lerp(v2(quad.x0,-quad.y0), v2(quad.x1,-quad.y1), _quad[j]) / (v2)wnd_dim * 2 -1;
+				out->uv =	lerp(v2(quad.s0,-quad.t0), v2(quad.s1,-quad.t1), _quad[j]);
+				out->col =	col;
+				++out;
+			}
+		}
+		
+		for (u32 j=0; j<6; ++j) {
+			out->pos =	lerp( ((v2)wnd_dim -v2((f32)tex.w,(f32)tex.h)) / (v2)wnd_dim * 2 -1, 1, _quad[j]);
+			out->uv =	_quad[j];
+			out->col =	col;
+			++out;
+		}
+		
+		vbo.upload(text_data);
+		vbo.bind(shad);
+		
+		glDrawArrays(GL_TRIANGLES, 0, text_data.len);
+	}
+};
+
+static Font			font;
 
 #if 0
 struct Func_Graph {
@@ -637,7 +786,6 @@ struct Particle_Sim {
 	
 	VBO_Pos_Col			bg_quad_vbo;
 	VBO_Pos_Col			particles_vbo;
-	VBO_Pos_Tex_Col		text_vbo;
 	
 	struct Particle {
 		v2	pos;
@@ -661,7 +809,6 @@ struct Particle_Sim {
 		
 		bg_quad_vbo.init();
 		particles_vbo.init();
-		text_vbo.init();
 		
 		for (u32 i=0; i<particle_count; ++i) {
 			f32 s = (f32)i / (f32)(particle_count);		// [0,1)
@@ -861,54 +1008,8 @@ struct Particle_Sim {
 			shad_tex.bind();
 			shad_tex.bind_texture(font.tex);
 			
-			v2 _quad[] = {
-				v2(1,0),
-				v2(1,1),
-				v2(0,0),
-				v2(0,0),
-				v2(1,1),
-				v2(0,1),
-			};
-			
-			char text[] = "Hello World! @!&?_";
-			
-			auto text_data = array<VBO_Pos_Tex_Col::V>::malloc( (arrlenof(u32,text)-1) * 6   +6);
-			
-			char* cur = &text[0];
-			auto* out = &text_data[0];
-			v2 pos = v2(50, -200);
-			
-			while (cur != &text[arrlenof(u32,text)-1]) {
-				
-				stbtt_aligned_quad quad;
-				
-				#if 1
-				stbtt_GetBakedQuad(font.chars, (s32)font.tex.w,(s32)font.tex.h, font.map_char(*cur++),
-						&pos.x,&pos.y, &quad, 1);
-				#else
-				stbtt_GetPackedQuad(font.chars, (s32)font.tex.w,(s32)font.tex.h, font.map_char(*cur++),
-						&pos.x,&pos.y, &quad, 1);
-				#endif
-				
-				for (u32 j=0; j<6; ++j) {
-					out->pos =	lerp(v2(quad.x0,-quad.y0), v2(quad.x1,-quad.y1), _quad[j]) / (v2)wnd_dim * 2 -1;
-					out->uv =	lerp(v2(quad.s0,-quad.t0), v2(quad.s1,-quad.t1), _quad[j]);
-					out->col =	v4(1,0,0,1);
-					++out;
-				}
-			}
-			
-			for (u32 j=0; j<6; ++j) {
-				out->pos =	lerp( ((v2)wnd_dim -v2((f32)font.tex.w,(f32)font.tex.h)) / (v2)wnd_dim * 2 -1, 1, _quad[j]);
-				out->uv =	_quad[j];
-				out->col =	v4(1,0,0,1);
-				++out;
-			}
-			
-			text_vbo.upload(text_data);
-			text_vbo.bind(shad_tex);
-			
-			glDrawArrays(GL_TRIANGLES, 0, text_data.len);
+			font.draw_text(shad_tex, U"Hello World! @!&?_ äöüÄÖÜß", v2(100, 200), v4(1,0.2f,0.2f,1) );
+			font.draw_text(shad_tex, U"あいうえお　かきくけこ　さしすせそ　。。。　「わ　ゆ　るろ　ん」", v2(100, 100), v4(1,0.2f,0.2f,1) );
 		}
 	}
 	

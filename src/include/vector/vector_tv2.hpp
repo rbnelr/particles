@@ -25,7 +25,7 @@ union V2 {
 		return *this = V2(x / r.x, y / r.y);
 	}
 	
-	#if V2 == s32v2
+	#if I_TO_F_CONV
 	operator fv2() { return fv2((f32)x, (f32)y); }
 	#endif
 };

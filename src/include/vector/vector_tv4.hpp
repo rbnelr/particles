@@ -30,7 +30,7 @@ union V4 {
 		return *this = V4(x / r.x, y / r.y, z / r.z, w / r.w);
 	}
 	
-	#if V4 == s32v4
+	#if I_TO_F_CONV
 	operator fv4() { return fv4((f32)x, (f32)y, (f32)z, (f32)w); }
 	#endif
 	

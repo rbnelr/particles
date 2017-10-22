@@ -28,7 +28,7 @@ union V3 {
 		return *this = V3(x / r.x, y / r.y, z / r.z);
 	}
 	
-	#if V3 == s32v3
+	#if I_TO_F_CONV
 	operator fv3() { return fv3((f32)x, (f32)y, (f32)z); }
 	#endif
 	

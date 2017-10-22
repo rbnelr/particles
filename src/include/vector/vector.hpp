@@ -36,6 +36,7 @@
 #define V2	s32v2
 #define V3	s32v3
 #define V4	s32v4
+#define I_TO_F_CONV	1
 	
 	#include "vector_tv2.hpp"
 	#include "vector_tv3.hpp"
@@ -45,6 +46,7 @@
 #undef V2
 #undef V3
 #undef V4
+#undef I_TO_F_CONV
 
 //
 #define T	f32
