@@ -17,10 +17,14 @@ typedef fm3		m3;
 typedef fm4		m4;
 
 #include <cstdio>
+#include <time.h>
 
 namespace random {
 	static void init_same_seed_everytime () {
 		srand(0);
+	}
+	static void init () {
+		srand( time(NULL) );
 	}
 	static f32 f32_01 () {
 		return (f32)rand() / (f32)RAND_MAX;
@@ -455,13 +459,13 @@ struct Particle_Sim {
 	};
 	v2 world_radius = v2(100);
 	
-	Particle particles[140];
+	Particle particles[210]; // 8 tsteps: 210, 32 tsteps: 140
 	u32 particle_count = arrlenof(u32, particles);
 	
 	void init  () {
 		cam = { v2(0), MAX(world_radius.x, world_radius.y)*1.1f };
 		
-		glfwSetWindowPos(wnd, 1920-1000 -16, 35);
+		//glfwSetWindowPos(wnd, 1920-1000 -16, 35);
 		glfwShowWindow(wnd);
 		
 		shad_world_col.init();
@@ -469,21 +473,23 @@ struct Particle_Sim {
 		paricles_vbo.init();
 		
 		for (u32 i=0; i<particle_count; ++i) {
-			f32 t = (f32)i / (f32)(particle_count -1);
+			f32 s = (f32)i / (f32)(particle_count);		// [0,1)
+			f32 t = (f32)i / (f32)(particle_count -1);	// [0,1]
 			
-			#if 0
+			#if 1
 			particles[i].pos = random::v2_n1p1() * world_radius;
 			particles[i].vel = random::v2_n1p1() * v2(5.0f);
 			#else
-			//f32 r = world_radius.x * lerp(0.7f, 0.8f, random::f32_01());
-			f32 r = world_radius.x * 0.75f;
+			f32 r = world_radius.x * lerp(0.7f, 0.8f, random::f32_01());
+			//f32 r = world_radius.x * 0.75f;
 			
-			particles[i].pos = rotate2(t*deg(360)) * v2(r, 0);
-			particles[i].vel = rotate2(t*deg(360)) * v2(0,+22.0f);
+			particles[i].pos = (rotate2(s*deg(360)) * v2(r, 0));
+			particles[i].vel = rotate2(s*deg(360)) * v2(0, +21.0f);
 			#endif
 			
 			particles[i].mass = 0.5f;
-			particles[i].col = random::v3_01() * v3(0.5f) +v3(0.5f);
+			
+			particles[i].col = hsl_to_rgb( {random::f32_01(), 1, 0.5f} );
 		}
 		
 	}
@@ -492,13 +498,12 @@ struct Particle_Sim {
 		
 		v2 total_vel;
 		
-		u32 tsteps = 16;
+		u32 tsteps = 8;
 		u32 taccel = 1;
 		for (u32 tstep=0; tstep<tsteps*taccel; ++tstep) {
-			//dbg_assert(dt >= 0.0f);
-			//dt = MIN(dt, 1.0f / 16);
-			//dt /= 4.0f;
 			dt = 1.0f / (60.0f*tsteps);
+			//dt = 1.0f / (6000.0f*tsteps);
+			//dt = 0;
 			
 			total_vel = v2(0);
 			for (u32 i=0; i<particle_count; ++i) {
@@ -536,7 +541,7 @@ struct Particle_Sim {
 		}
 		//printf("total vel: %f {%f,%f}\n", length(total_vel), total_vel.x, total_vel.y);
 		
-		v4 world_rect_col = v4( srgb(41,49,52), 1 );
+		v4 world_rect_col = v4( srgb(41,49,52) * 0.5f, 1 );
 		v3 background_col = world_rect_col.xyz() * v3(0.8f);
 		
 		glViewport(0, 0, wnd_dim.x, wnd_dim.y);
@@ -566,18 +571,99 @@ struct Particle_Sim {
 		}
 		
 		{
-			auto particles_data = array<VBO_Pos_Col::V>::malloc(particle_count);
+			
+			v2 px_size_world = inverse( cam.world_to_clip.m2() ) * (1 / (v2)wnd_dim);
+			v2 a = px_size_world * 0.5f * 1.5f;
+			v2 b = px_size_world * 1.5f * 1.5f; // TODO: this should work with *1 but doesn't, why?
+			
+			struct Vertex {
+				v2	offs;
+				f32	alpha;
+			};
+			Vertex aa_quad[] = {
+				// Center
+				{ a*v2(-1,+1), 1 },
+				{ a*v2(+1,+1), 1 },
+				{ a*v2(-1,-1), 1 },
+				{ a*v2(-1,-1), 1 },
+				{ a*v2(+1,+1), 1 },
+				{ a*v2(+1,-1), 1 },
+				
+				// Edge L
+				{ a*v2(-1,-1) +b*v2( 0,-1), 0 },
+				{ a*v2(+1,-1) +b*v2( 0,-1), 0 },
+				{ a*v2(-1,-1) +b*v2( 0, 0), 1 },
+				{ a*v2(-1,-1) +b*v2( 0, 0), 1 },
+				{ a*v2(+1,-1) +b*v2( 0,-1), 0 },
+				{ a*v2(+1,-1) +b*v2( 0, 0), 1 },
+				// Edge R
+				{ a*v2(+1,-1) +b*v2(+1, 0), 0 },
+				{ a*v2(+1,+1) +b*v2(+1, 0), 0 },
+				{ a*v2(+1,-1) +b*v2( 0, 0), 1 },
+				{ a*v2(+1,-1) +b*v2( 0, 0), 1 },
+				{ a*v2(+1,+1) +b*v2(+1, 0), 0 },
+				{ a*v2(+1,+1) +b*v2( 0, 0), 1 },
+				// Edge U
+				{ a*v2(-1,+1) +b*v2( 0,+1), 0 },
+				{ a*v2(+1,+1) +b*v2( 0,+1), 0 },
+				{ a*v2(-1,+1) +b*v2( 0, 0), 1 },
+				{ a*v2(-1,+1) +b*v2( 0, 0), 1 },
+				{ a*v2(+1,+1) +b*v2( 0,+1), 0 },
+				{ a*v2(+1,+1) +b*v2( 0, 0), 1 },
+				// Edge L
+				{ a*v2(-1,-1) +b*v2(-1, 0), 0 },
+				{ a*v2(-1,+1) +b*v2(-1, 0), 0 },
+				{ a*v2(-1,-1) +b*v2( 0, 0), 1 },
+				{ a*v2(-1,-1) +b*v2( 0, 0), 1 },
+				{ a*v2(-1,+1) +b*v2(-1, 0), 0 },
+				{ a*v2(-1,+1) +b*v2( 0, 0), 1 },
+				
+				// Corner LL
+				{ a*v2(-1,-1) +b*v2( 0,-1), 0 },
+				{ a*v2(-1,-1) +b*v2( 0, 0), 1 },
+				{ a*v2(-1,-1) +b*v2(-1,-1)*SQRT_2/2, 0 },
+				{ a*v2(-1,-1) +b*v2(-1,-1)*SQRT_2/2, 0 },
+				{ a*v2(-1,-1) +b*v2( 0, 0), 1 },
+				{ a*v2(-1,-1) +b*v2(-1, 0), 0 },
+				// Corner LR
+				{ a*v2(+1,-1) +b*v2( 0,-1), 0 },
+				{ a*v2(+1,-1) +b*v2(+1,-1)*SQRT_2/2, 0 },
+				{ a*v2(+1,-1) +b*v2( 0, 0), 1 },
+				{ a*v2(+1,-1) +b*v2( 0, 0), 1 },
+				{ a*v2(+1,-1) +b*v2(+1,-1)*SQRT_2/2, 0 },
+				{ a*v2(+1,-1) +b*v2(+1, 0), 0 },
+				// Corner UR
+				{ a*v2(+1,+1) +b*v2(+1, 0), 0 },
+				{ a*v2(+1,+1) +b*v2(+1,+1)*SQRT_2/2, 0 },
+				{ a*v2(+1,+1) +b*v2( 0, 0), 1 },
+				{ a*v2(+1,+1) +b*v2( 0, 0), 1 },
+				{ a*v2(+1,+1) +b*v2(+1,+1)*SQRT_2/2, 0 },
+				{ a*v2(+1,+1) +b*v2( 0,+1), 0 },
+				// Corner UL
+				{ a*v2(-1,+1) +b*v2( 0,+1), 0 },
+				{ a*v2(-1,+1) +b*v2(-1,+1)*SQRT_2/2, 0 },
+				{ a*v2(-1,+1) +b*v2( 0, 0), 1 },
+				{ a*v2(-1,+1) +b*v2( 0, 0), 1 },
+				{ a*v2(-1,+1) +b*v2(-1,+1)*SQRT_2/2, 0 },
+				{ a*v2(-1,+1) +b*v2(-1, 0), 0 },
+			};
+			
+			auto particles_data = array<VBO_Pos_Col::V>::malloc(particle_count*arrlenof(u32,aa_quad));
 			defer { particles_data.free(); };
 			
+			auto* out = &particles_data[0];
 			for (u32 i=0; i<particle_count; ++i) {
-				particles_data[i].pos = particles[i].pos;
-				particles_data[i].col = v4(particles[i].col, 1);
+				for (u32 j=0; j<arrlenof(u32,aa_quad); ++j) {
+					out->pos = aa_quad[j].offs +particles[i].pos;
+					out->col = v4(particles[i].col, aa_quad[j].alpha);
+					++out;
+				}
 			}
 			
 			paricles_vbo.upload(particles_data);
 			paricles_vbo.bind(shad_world_col);
 			
-			glDrawArrays(GL_POINTS, 0, particles_data.len);
+			glDrawArrays(GL_TRIANGLES, 0, particles_data.len);
 		}
 	}
 	
@@ -781,7 +867,8 @@ struct Spring_Test {
 
 int main (int argc, char** argv) {
 	
-	random::init_same_seed_everytime();
+	//random::init_same_seed_everytime();
+	random::init();
 	
 	setup_glfw();
 	

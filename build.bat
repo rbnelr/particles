@@ -9,8 +9,9 @@
 	
 	set ROOT=%~dp0
 	set SRC=!ROOT!src/
-	set GLFW=!SRC!deps/glfw-3.2.1.bin.WIN64/
-	set GLAD=!SRC!deps/glad/
+	set DEPS=!ROOT!deps/
+	set GLFW=!DEPS!glfw-3.2.1.bin.WIN64/
+	set GLAD=!DEPS!glad/
 	
 	set func=vs
 	if not [%1] == []		set func=%1
