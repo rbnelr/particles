@@ -8,7 +8,7 @@
 static void _failed_dbg_assert (cstr cond) {
 	fprintf(stderr,	ANSI_COLOUR_CODE_RED
 					"dbg_assert failed!\n"
-					"  '%s'\n" ANSI_COLOUR_CODE_NC, cond);
+					"  %s'\n" ANSI_COLOUR_CODE_NC, cond);
 	
 	BREAK_IF_DEBUGGING_ELSE_STALL;
 }
@@ -16,8 +16,8 @@ static void _failed_dbg_assert (cstr cond, cstr msg_format, ...) {
 	
 	fprintf(stderr,	ANSI_COLOUR_CODE_RED
 					"dbg_assert failed!\n"
-					"  '%s'\n"
-					"  '", cond);
+					"  %s'\n"
+					"    '", cond);
 	
 	va_list vl;
 	va_start(vl, msg_format);
@@ -31,7 +31,7 @@ static void _failed_dbg_assert (cstr cond, cstr msg_format, ...) {
 	BREAK_IF_DEBUGGING_ELSE_STALL;
 }
 
-#define dbg_assert(cond, ...)	if (!(cond)) _failed_dbg_assert(STRINGIFY(cond), ##__VA_ARGS__)
+#define dbg_assert(cond, ...)	if (!(cond)) _failed_dbg_assert(__FILE__ ":" TO_STRING(__LINE__) ":" __FUNCTION__ ":\n    '" STRINGIFY(cond), ##__VA_ARGS__)
 #else
 #define dbg_assert(cond, ...)	do { (void)(cond); } while (0)
 

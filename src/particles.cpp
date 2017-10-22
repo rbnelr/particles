@@ -2,9 +2,12 @@
 #define _USING_V110_SDK71_ 1
 #include "windows.h"
 
+#include <cstdio>
+
 #include "lang_helpers.hpp"
 #include "math.hpp"
 #include "vector/vector.hpp"
+#include "random.hpp"
 
 typedef s32v2	iv2;
 typedef s32v3	iv3;
@@ -16,28 +19,6 @@ typedef fm2		m2;
 typedef fm3		m3;
 typedef fm4		m4;
 
-#include <cstdio>
-#include <time.h>
-
-namespace random {
-	static void init_same_seed_everytime () {
-		srand(0);
-	}
-	static void init () {
-		srand( time(NULL) );
-	}
-	static f32 f32_01 () {
-		return (f32)rand() / (f32)RAND_MAX;
-	}
-	static v3 v3_01 () {
-		return (v3)(iv3(rand(), rand(), rand())) / v3((f32)RAND_MAX);
-	}
-	static v2 v2_n1p1 () {
-		return ((v2)(iv2(rand(), rand())) / v2((f32)RAND_MAX)) * v2(2) -v2(1);
-	}
-	
-}
-
 #include "glad.c"
 #include "GLFW/glfw3.h"
 
@@ -46,6 +27,121 @@ STATIC_ASSERT(sizeof(GLuint) ==		sizeof(u32));
 STATIC_ASSERT(sizeof(GLsizei) ==	sizeof(u32));
 STATIC_ASSERT(sizeof(GLsizeiptr) ==	sizeof(u64));
 
+#define STB_TRUETYPE_IMPLEMENTATION
+#include "stb_truetype.h"
+//#include "stb_rect_pack.h"
+
+struct File_Data {
+	byte*	data;
+	u64		size;
+	
+	void free () { ::free(data); }
+};
+static File_Data load_file (cstr filename) {
+	auto f = fopen(filename, "rb");
+	if (!f) return {}; // fail
+	defer { fclose(f); };
+	
+	fseek(f, 0, SEEK_END);
+	u64 file_size = ftell(f); // only 32 support for now
+	rewind(f);
+	
+	byte* data = (byte*)malloc(file_size);
+	
+	auto ret = fread(data, 1,file_size, f);
+	dbg_assert(ret == file_size);
+	file_size = ret;
+	
+	return {data,file_size};
+}
+
+struct Texture {
+	GLuint	gl;
+	u8*		data;
+	u32		w;
+	u32		h;
+	
+	void alloc (u32 w, u32 h) {
+		glGenTextures(1, &gl);
+		this->w = w;
+		this->h = h;
+		data = (u8*)::malloc(w*h*sizeof(u8));
+	}
+	
+	u8* operator[] (u32 row) { return &data[row*w]; }
+	
+	void inplace_vertical_flip () {
+		u8* row_a = (*this)[0];
+		u8* row_b = (*this)[h -1];
+		for (u32 y=0; y<(h/2); ++y) {
+			dbg_assert(row_a < row_b);
+			for (u32 x=0; x<w; ++x) {
+				u8 tmp = row_a[x];
+				row_a[x] = row_b[x];
+				row_b[x] = tmp;
+			}
+			row_a += w;
+			row_b -= w;
+		}
+	}
+};
+struct Font {
+	Texture			tex;
+	
+	static constexpr u32 charset_first_char = ' ';
+	static constexpr u32 charset_num_chars = ('~'+1) -charset_first_char;
+	#if 1
+	stbtt_bakedchar		chars[charset_num_chars];
+	int map_char (char c) {
+		dbg_assert((c -charset_first_char) < charset_num_chars);
+		return (s32)(c -charset_first_char);
+	}
+	#else
+	stbtt_packedchar	chars[charset_num_chars];
+	int map_char (char c) {
+		dbg_assert((c -charset_first_char) < charset_num_chars);
+		return (s32)(c -charset_first_char);
+	}
+	#endif
+	
+	bool init () {
+		
+		auto f = load_file("c:/windows/fonts/times.ttf");
+		//auto f = load_file("c:/windows/fonts/arialbd.ttf");
+		//auto f = load_file("c:/windows/fonts/consola.ttf");
+		defer { f.free(); };
+		
+		tex.alloc(512,512);
+		
+		#if 1
+		auto ret = stbtt_BakeFontBitmap(f.data, 0, 64, tex.data, (s32)tex.w,(s32)tex.h, charset_first_char, (s32)charset_num_chars, chars);
+		dbg_assert(ret > 0);
+		#else
+		stbtt_pack_context spc;
+		stbtt_PackBegin(&spc, tex.data, (s32)tex.w,(s32)tex.h, (s32)tex.w, 1, nullptr);
+		
+		//stbtt_PackSetOversampling(&spc, 1,1);
+		
+		stbtt_pack_range ranges[] = {
+			{ 32, charset_first_char, nullptr, charset_num_chars, &chars[0] },
+		};
+		stbtt_PackFontRanges(&spc, f.data, 0, ranges, arrlenof(s32, ranges));
+		
+		stbtt_PackEnd(&spc);
+		#endif
+		
+		tex.inplace_vertical_flip();
+		
+		glBindTexture(GL_TEXTURE_2D, tex.gl);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, tex.w,tex.h, 0, GL_RED, GL_UNSIGNED_BYTE, tex.data);
+		
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL,	0);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL,	0);
+		return true;
+	}
+};
+
+//
 static GLFWwindow*	wnd;
 static u32			frame_indx; // probably should only used for debug logic
 
@@ -53,6 +149,8 @@ static iv2			wnd_dim;
 static v2			wnd_dim_aspect;
 static iv2			cursor_pos;
 static s32			scrollwheel_diff;
+
+static Font			font;
 
 #include "buttons.hpp"
 
@@ -338,6 +436,7 @@ struct Shader_Clip_Col : Basic_Shader {
 	Shader_Clip_Col (): Basic_Shader(
 // Vertex shader
 R"_SHAD(
+	#version 140
 	attribute	vec2	attrib_pos; // clip
 	attribute	vec4	attrib_col;
 	varying		vec4	color;
@@ -349,10 +448,11 @@ R"_SHAD(
 )_SHAD",
 // Fragment shader
 R"_SHAD(
+	#version 140
 	varying		vec4	color;
 	
 	void main() {
-		gl_FragColor = color, 1.0;
+		gl_FragColor = color;
 	}
 )_SHAD"
 	) {}
@@ -365,6 +465,7 @@ struct Shader_World_Col : Basic_Shader {
 	Shader_World_Col (): Basic_Shader(
 // Vertex shader
 R"_SHAD(
+	#version 140
 	attribute	vec2	attrib_pos; // world
 	attribute	vec4	attrib_col;
 	varying		vec4	color;
@@ -377,10 +478,11 @@ R"_SHAD(
 )_SHAD",
 // Fragment shader
 R"_SHAD(
+	#version 140
 	varying		vec4	color;
 	
 	void main() {
-		gl_FragColor = color, 1.0;
+		gl_FragColor = color;
 	}
 )_SHAD"
 	) {}
@@ -393,6 +495,89 @@ R"_SHAD(
 		
 		world_to_clip.loc =		glGetUniformLocation(prog, "world_to_clip");
 		
+	}
+};
+
+struct VBO_Pos_Tex_Col {
+	GLuint	vbo;
+	struct V {
+		v2	pos;
+		v2	uv;
+		v4	col;
+	};
+	
+	void init () {
+		glGenBuffers(1, &vbo);
+	}
+	void upload (array<V> cr data) {
+		uptr data_size = data.len * sizeof(V);
+		
+		glBindBuffer(GL_ARRAY_BUFFER, vbo);
+		glBufferData(GL_ARRAY_BUFFER, data_size, NULL, GL_STATIC_DRAW);
+		glBufferData(GL_ARRAY_BUFFER, data_size, data.arr, GL_STATIC_DRAW);
+		
+		glBindBuffer(GL_ARRAY_BUFFER, 0);
+	}
+	void bind (Basic_Shader cr shad) {
+		
+		glBindBuffer(GL_ARRAY_BUFFER, vbo);
+		
+		GLint	pos =	glGetAttribLocation(shad.prog, "attrib_pos");
+		GLint	uv =	glGetAttribLocation(shad.prog, "attrib_uv");
+		GLint	col =	glGetAttribLocation(shad.prog, "attrib_col");
+		
+		glEnableVertexAttribArray(pos);
+		glVertexAttribPointer(pos,	2, GL_FLOAT, GL_FALSE, sizeof(V), (void*)offsetof(V,pos));
+		
+		glEnableVertexAttribArray(uv);
+		glVertexAttribPointer(uv,	2, GL_FLOAT, GL_FALSE, sizeof(V), (void*)offsetof(V,uv));
+		
+		glEnableVertexAttribArray(col);
+		glVertexAttribPointer(col,	4, GL_FLOAT, GL_FALSE, sizeof(V), (void*)offsetof(V,col));
+		
+	}
+	
+};
+struct Shader_Clip_Tex_Col : Basic_Shader {
+	Shader_Clip_Tex_Col (): Basic_Shader(
+// Vertex shader
+R"_SHAD(
+	#version 140
+	attribute	vec2	attrib_pos; // clip
+	attribute	vec2	attrib_uv;
+	attribute	vec4	attrib_col;
+	varying		vec4	color;
+	varying		vec2	uv;
+	
+	void main() {
+		gl_Position =	vec4(attrib_pos, 0.0, 1.0);
+		uv =			attrib_uv;
+		color =			attrib_col;
+	}
+)_SHAD",
+// Fragment shader
+R"_SHAD(
+	#version 140
+	varying		vec4	color;
+	varying		vec2	uv;
+	uniform		sampler2D	tex;
+	
+	void main() {
+		gl_FragColor = color * vec4(1,1,1, texture(tex, uv).r);
+	}
+)_SHAD"
+	) {}
+	
+	void init () {
+		compile();
+		
+		auto tex = glGetUniformLocation(prog, "tex");
+		dbg_assert(tex != -1);
+		glUniform1i(tex, 0);
+	}
+	void bind_texture (Texture tex) {
+		glActiveTexture(GL_TEXTURE0 +0);
+		glBindTexture(GL_TEXTURE_2D, tex.gl);
 	}
 };
 
@@ -448,8 +633,11 @@ struct Func_Graph {
 
 struct Particle_Sim {
 	Shader_World_Col	shad_world_col;
+	Shader_Clip_Tex_Col	shad_tex;
+	
 	VBO_Pos_Col			bg_quad_vbo;
-	VBO_Pos_Col			paricles_vbo;
+	VBO_Pos_Col			particles_vbo;
+	VBO_Pos_Tex_Col		text_vbo;
 	
 	struct Particle {
 		v2	pos;
@@ -469,8 +657,11 @@ struct Particle_Sim {
 		glfwShowWindow(wnd);
 		
 		shad_world_col.init();
+		shad_tex.init();
+		
 		bg_quad_vbo.init();
-		paricles_vbo.init();
+		particles_vbo.init();
+		text_vbo.init();
 		
 		for (u32 i=0; i<particle_count; ++i) {
 			f32 s = (f32)i / (f32)(particle_count);		// [0,1)
@@ -660,10 +851,64 @@ struct Particle_Sim {
 				}
 			}
 			
-			paricles_vbo.upload(particles_data);
-			paricles_vbo.bind(shad_world_col);
+			particles_vbo.upload(particles_data);
+			particles_vbo.bind(shad_world_col);
 			
 			glDrawArrays(GL_TRIANGLES, 0, particles_data.len);
+		}
+		
+		{
+			shad_tex.bind();
+			shad_tex.bind_texture(font.tex);
+			
+			v2 _quad[] = {
+				v2(1,0),
+				v2(1,1),
+				v2(0,0),
+				v2(0,0),
+				v2(1,1),
+				v2(0,1),
+			};
+			
+			char text[] = "Hello World! @!&?_";
+			
+			auto text_data = array<VBO_Pos_Tex_Col::V>::malloc( (arrlenof(u32,text)-1) * 6   +6);
+			
+			char* cur = &text[0];
+			auto* out = &text_data[0];
+			v2 pos = v2(50, -200);
+			
+			while (cur != &text[arrlenof(u32,text)-1]) {
+				
+				stbtt_aligned_quad quad;
+				
+				#if 1
+				stbtt_GetBakedQuad(font.chars, (s32)font.tex.w,(s32)font.tex.h, font.map_char(*cur++),
+						&pos.x,&pos.y, &quad, 1);
+				#else
+				stbtt_GetPackedQuad(font.chars, (s32)font.tex.w,(s32)font.tex.h, font.map_char(*cur++),
+						&pos.x,&pos.y, &quad, 1);
+				#endif
+				
+				for (u32 j=0; j<6; ++j) {
+					out->pos =	lerp(v2(quad.x0,-quad.y0), v2(quad.x1,-quad.y1), _quad[j]) / (v2)wnd_dim * 2 -1;
+					out->uv =	lerp(v2(quad.s0,-quad.t0), v2(quad.s1,-quad.t1), _quad[j]);
+					out->col =	v4(1,0,0,1);
+					++out;
+				}
+			}
+			
+			for (u32 j=0; j<6; ++j) {
+				out->pos =	lerp( ((v2)wnd_dim -v2((f32)font.tex.w,(f32)font.tex.h)) / (v2)wnd_dim * 2 -1, 1, _quad[j]);
+				out->uv =	_quad[j];
+				out->col =	v4(1,0,0,1);
+				++out;
+			}
+			
+			text_vbo.upload(text_data);
+			text_vbo.bind(shad_tex);
+			
+			glDrawArrays(GL_TRIANGLES, 0, text_data.len);
 		}
 	}
 	
@@ -877,6 +1122,10 @@ int main (int argc, char** argv) {
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	
 	glfwSwapInterval(1);
+	
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+	
+	font.init();
 	
 	#if 0
 	Spring_Test game = Spring_Test();

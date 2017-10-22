@@ -123,9 +123,11 @@ static FORCEINLINE At_Scope_Exit<FUNC> operator+(_Defer_Helper, FUNC f) {
 	return At_Scope_Exit<FUNC>(f);
 }
 
-#define defer auto _defer_helper##__COUNTER__ = _Defer_Helper() +[&] () 
-// use like: defer { lambda code };
+#define CONCAT(a,b) a##b
 
+#define _defer(counter) auto CONCAT(_defer_helper, counter) = _Defer_Helper() +[&] () 
+#define defer _defer(__COUNTER__)
+// use like: defer { lambda code };
 
 #undef DEFINE_ENUM_FLAG_OPS
 #define DEFINE_ENUM_FLAG_OPS(TYPE, UNDERLYING_TYPE) \

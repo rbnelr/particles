@@ -12,6 +12,7 @@
 	set DEPS=!ROOT!deps/
 	set GLFW=!DEPS!glfw-3.2.1.bin.WIN64/
 	set GLAD=!DEPS!glad/
+	set STB=!DEPS!stb/
 	
 	set func=vs
 	if not [%1] == []		set func=%1
@@ -47,7 +48,7 @@ rem /main
 	rem /wd4577 noexcept used with no exceptions enabled
 	
 	rem /showIncludes
-	cl.exe -nologo /DRZ_PLATF=1 /DRZ_ARCH=1 !opt! !warn! /I!SRC!include /I!GLFW!include /I!GLAD! !SRC!!proj!.cpp /Fe!ROOT!!proj!.exe /link KERNEL32.lib OPENGL32.lib !GLFW!lib-vc2015/glfw3dll.lib /INCREMENTAL:NO /SUBSYSTEM:CONSOLE /OPT:REF
+	cl.exe -nologo /DRZ_PLATF=1 /DRZ_ARCH=1 !opt! !warn! /I!SRC!include /I!GLFW!include /I!GLAD! /I!STB! !SRC!!proj!.cpp /Fe!ROOT!!proj!.exe /link KERNEL32.lib OPENGL32.lib !GLFW!lib-vc2015/glfw3dll.lib /INCREMENTAL:NO /SUBSYSTEM:CONSOLE /OPT:REF
 	
 	del *.obj
 	
@@ -92,7 +93,7 @@ rem /llvm
 	rem -Wno-unused-function
 	rem -Wtautological-compare		constant if statements
 	
-	!GCC!g++ -std=c++11 -m64 -DRZ_PLATF=1 -DRZ_ARCH=1 !opt! !warn! -I!SRC!include -I!GLFW!include -I!GLAD! -o !ROOT!!proj!.exe !SRC!!proj!.cpp -L!GLFW!lib-mingw-w64 -lglfw3dll
+	!GCC!g++ -std=c++11 -m64 -DRZ_PLATF=1 -DRZ_ARCH=1 !opt! !warn! -I!SRC!include -I!GLFW!include -I!GLAD! -I!STB! -o !ROOT!!proj!.exe !SRC!!proj!.cpp -L!GLFW!lib-mingw-w64 -lglfw3dll
 	
 	exit /b
 rem /llvm
