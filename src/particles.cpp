@@ -381,9 +381,9 @@ struct Shader_Clip_Col : Basic_Shader {
 // Vertex shader
 R"_SHAD(
 	#version 140
-	attribute	vec2	attrib_pos; // clip
-	attribute	vec4	attrib_col;
-	varying		vec4	color;
+	in		vec2	attrib_pos; // clip
+	in		vec4	attrib_col;
+	out		vec4	color;
 	
 	void main() {
 		gl_Position = vec4(attrib_pos, 0.0, 1.0);
@@ -393,10 +393,11 @@ R"_SHAD(
 // Fragment shader
 R"_SHAD(
 	#version 140
-	varying		vec4	color;
+	in		vec4	color;
+	out		vec4	frag_col;
 	
 	void main() {
-		gl_FragColor = color;
+		frag_col = color;
 	}
 )_SHAD"
 	) {}
@@ -410,10 +411,10 @@ struct Shader_World_Col : Basic_Shader {
 // Vertex shader
 R"_SHAD(
 	#version 140
-	attribute	vec2	attrib_pos; // world
-	attribute	vec4	attrib_col;
-	varying		vec4	color;
-	uniform		mat4	world_to_clip;
+	in		vec2	attrib_pos; // world
+	in		vec4	attrib_col;
+	out		vec4	color;
+	uniform	mat4	world_to_clip;
 	
 	void main() {
 		gl_Position = world_to_clip * vec4(attrib_pos, 0.0, 1.0);
@@ -423,10 +424,11 @@ R"_SHAD(
 // Fragment shader
 R"_SHAD(
 	#version 140
-	varying		vec4	color;
+	in		vec4	color;
+	out		vec4	frag_col;
 	
 	void main() {
-		gl_FragColor = color;
+		frag_col = color;
 	}
 )_SHAD"
 	) {}
@@ -487,11 +489,11 @@ struct Shader_Clip_Tex_Col : Basic_Shader {
 // Vertex shader
 R"_SHAD(
 	#version 140
-	attribute	vec2	attrib_pos; // clip
-	attribute	vec2	attrib_uv;
-	attribute	vec4	attrib_col;
-	varying		vec4	color;
-	varying		vec2	uv;
+	in		vec2	attrib_pos; // clip
+	in		vec2	attrib_uv;
+	in		vec4	attrib_col;
+	out		vec4	color;
+	out		vec2	uv;
 	
 	void main() {
 		gl_Position =	vec4(attrib_pos, 0.0, 1.0);
@@ -502,12 +504,14 @@ R"_SHAD(
 // Fragment shader
 R"_SHAD(
 	#version 140
-	varying		vec4	color;
-	varying		vec2	uv;
-	uniform		sampler2D	tex;
+	in		vec4	color;
+	in		vec2	uv;
+	uniform	sampler2D	tex;
+	
+	out		vec4	frag_col;
 	
 	void main() {
-		gl_FragColor = color * vec4(1,1,1, texture(tex, uv).r);
+		frag_col = color * vec4(1,1,1, texture(tex, uv).r);
 	}
 )_SHAD"
 	) {}
