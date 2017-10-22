@@ -694,7 +694,13 @@ struct Font {
 		
 		u32 text_len = strlen(text);
 		
-		auto text_data = array<VBO_Pos_Tex_Col::V>::malloc( text_len * 6   +6);
+		#define SHOW_TEXTURE 0
+		
+		auto text_data = array<VBO_Pos_Tex_Col::V>::malloc( text_len * 6
+				#if SHOW_TEXTURE
+				+6
+				#endif
+				);
 		
 		utf32* cur = &text[0];
 		auto* out = &text_data[0];
@@ -714,12 +720,16 @@ struct Font {
 			}
 		}
 		
+		#if SHOW_TEXTURE
 		for (u32 j=0; j<6; ++j) {
 			out->pos =	lerp( ((v2)wnd_dim -v2((f32)tex.w,(f32)tex.h)) / (v2)wnd_dim * 2 -1, 1, _quad[j]);
 			out->uv =	_quad[j];
 			out->col =	col;
 			++out;
 		}
+		#endif
+		
+		#undef SHOW_TEXTURE
 		
 		vbo.upload(text_data);
 		vbo.bind(shad);
@@ -814,7 +824,7 @@ struct Particle_Sim {
 			f32 s = (f32)i / (f32)(particle_count);		// [0,1)
 			f32 t = (f32)i / (f32)(particle_count -1);	// [0,1]
 			
-			#if 1
+			#if 0
 			particles[i].pos = random::v2_n1p1() * world_radius;
 			particles[i].vel = random::v2_n1p1() * v2(5.0f);
 			#else
@@ -822,7 +832,7 @@ struct Particle_Sim {
 			//f32 r = world_radius.x * 0.75f;
 			
 			particles[i].pos = (rotate2(s*deg(360)) * v2(r, 0));
-			particles[i].vel = rotate2(s*deg(360)) * v2(0, +21.0f);
+			particles[i].vel = rotate2(s*deg(360)) * v2(0, +19.0f);
 			#endif
 			
 			particles[i].mass = 0.5f;
