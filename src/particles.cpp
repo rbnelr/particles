@@ -94,6 +94,7 @@ static u32			frame_indx; // probably should only used for debug logic
 static iv2			wnd_dim;
 static v2			wnd_dim_aspect;
 static iv2			cursor_pos;
+static bool			cursor_in_wnd;
 static s32			scrollwheel_diff;
 
 #include "buttons.hpp"
@@ -111,7 +112,7 @@ static void setup_glfw () {
 	dbg_assert( glfwInit() );
 	
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR,	3);
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR,	1);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR,	3);
 	//glfwWindowHint(GLFW_OPENGL_PROFILE,			GLFW_OPENGL_CORE_PROFILE);
 	
 	glfwWindowHint(GLFW_VISIBLE,				0);
@@ -134,7 +135,9 @@ struct Camera {
 	
 	m4 world_to_clip;
 };
-static Camera					cam;
+static Camera		cam;
+
+static v2			cursor_pos_world;
 
 static GLuint vbo_init_and_upload_static (void* data, uptr data_size) {
 	GLuint vbo;
@@ -241,16 +244,17 @@ struct Basic_Shader {
 	}
 	
 };
-struct Unif_fm2 {
+
+struct Unif_s32 {
 	GLint loc;
-	void set (fm2 m) const {
-		glUniformMatrix2fv(loc, 1, GL_FALSE, &m.arr[0][0]);
+	void set (s32 i) const {
+		glUniform1i(loc, i);
 	}
 };
-struct Unif_fm4 {
+struct Unif_flt {
 	GLint loc;
-	void set (fm4 m) const {
-		glUniformMatrix4fv(loc, 1, GL_FALSE, &m.arr[0][0]);
+	void set (f32 f) const {
+		glUniform1f(loc, f);
 	}
 };
 struct Unif_fv2 {
@@ -263,6 +267,18 @@ struct Unif_fv3 {
 	GLint loc;
 	void set (fv3 cr v) const {
 		glUniform3fv(loc, 1, &v.x);
+	}
+};
+struct Unif_fm2 {
+	GLint loc;
+	void set (fm2 m) const {
+		glUniformMatrix2fv(loc, 1, GL_FALSE, &m.arr[0][0]);
+	}
+};
+struct Unif_fm4 {
+	GLint loc;
+	void set (fm4 m) const {
+		glUniformMatrix4fv(loc, 1, GL_FALSE, &m.arr[0][0]);
 	}
 };
 
@@ -341,6 +357,12 @@ R"_SHAD(
 };
 #endif
 
+#if 0
+#define GLSL_VERSION "#version 140\n"
+#else
+#define GLSL_VERSION "#version 330\n"
+#endif
+
 struct VBO_Pos_Col {
 	GLuint	vbo;
 	struct V {
@@ -367,6 +389,9 @@ struct VBO_Pos_Col {
 		GLint	pos =	glGetAttribLocation(shad.prog, "attrib_pos");
 		GLint	col =	glGetAttribLocation(shad.prog, "attrib_col");
 		
+		dbg_assert(pos >= 0);
+		dbg_assert(col >= 0);
+		
 		glEnableVertexAttribArray(pos);
 		glVertexAttribPointer(pos,	2, GL_FLOAT, GL_FALSE, sizeof(V), (void*)offsetof(V,pos));
 		
@@ -379,8 +404,7 @@ struct VBO_Pos_Col {
 struct Shader_Clip_Col : Basic_Shader {
 	Shader_Clip_Col (): Basic_Shader(
 // Vertex shader
-R"_SHAD(
-	#version 140
+GLSL_VERSION R"_SHAD(
 	in		vec2	attrib_pos; // clip
 	in		vec4	attrib_col;
 	out		vec4	color;
@@ -391,8 +415,7 @@ R"_SHAD(
 	}
 )_SHAD",
 // Fragment shader
-R"_SHAD(
-	#version 140
+GLSL_VERSION R"_SHAD(
 	in		vec4	color;
 	out		vec4	frag_col;
 	
@@ -409,8 +432,7 @@ R"_SHAD(
 struct Shader_World_Col : Basic_Shader {
 	Shader_World_Col (): Basic_Shader(
 // Vertex shader
-R"_SHAD(
-	#version 140
+GLSL_VERSION R"_SHAD(
 	in		vec2	attrib_pos; // world
 	in		vec4	attrib_col;
 	out		vec4	color;
@@ -422,8 +444,7 @@ R"_SHAD(
 	}
 )_SHAD",
 // Fragment shader
-R"_SHAD(
-	#version 140
+GLSL_VERSION R"_SHAD(
 	in		vec4	color;
 	out		vec4	frag_col;
 	
@@ -440,6 +461,8 @@ R"_SHAD(
 		compile();
 		
 		world_to_clip.loc =		glGetUniformLocation(prog, "world_to_clip");
+		
+		dbg_assert(world_to_clip.loc >= 0);
 		
 	}
 };
@@ -472,6 +495,10 @@ struct VBO_Pos_Tex_Col {
 		GLint	uv =	glGetAttribLocation(shad.prog, "attrib_uv");
 		GLint	col =	glGetAttribLocation(shad.prog, "attrib_col");
 		
+		dbg_assert(pos >= 0);
+		dbg_assert(uv >= 0);
+		dbg_assert(col >= 0);
+		
 		glEnableVertexAttribArray(pos);
 		glVertexAttribPointer(pos,	2, GL_FLOAT, GL_FALSE, sizeof(V), (void*)offsetof(V,pos));
 		
@@ -487,8 +514,7 @@ struct VBO_Pos_Tex_Col {
 struct Shader_Clip_Tex_Col : Basic_Shader {
 	Shader_Clip_Tex_Col (): Basic_Shader(
 // Vertex shader
-R"_SHAD(
-	#version 140
+GLSL_VERSION R"_SHAD(
 	in		vec2	attrib_pos; // clip
 	in		vec2	attrib_uv;
 	in		vec4	attrib_col;
@@ -502,8 +528,7 @@ R"_SHAD(
 	}
 )_SHAD",
 // Fragment shader
-R"_SHAD(
-	#version 140
+GLSL_VERSION R"_SHAD(
 	in		vec4	color;
 	in		vec2	uv;
 	uniform	sampler2D	tex;
@@ -742,6 +767,140 @@ struct Font {
 	}
 };
 
+struct VBO_Instanced_Particles {
+	GLuint	vbo;
+	struct V {
+		v2	pos_world;
+		v2	vel_world;;
+		v4	col;
+	};
+	void init () {
+		glGenBuffers(1, &vbo);
+	}
+	void upload (array<V> cr data) {
+		uptr data_size = data.len * sizeof(V);
+		
+		glBindBuffer(GL_ARRAY_BUFFER, vbo);
+		glBufferData(GL_ARRAY_BUFFER, data_size, NULL, GL_STATIC_DRAW);
+		glBufferData(GL_ARRAY_BUFFER, data_size, data.arr, GL_STATIC_DRAW);
+		
+		glBindBuffer(GL_ARRAY_BUFFER, 0);
+	}
+	void bind (Basic_Shader cr shad) {
+		
+		glBindBuffer(GL_ARRAY_BUFFER, vbo);
+		
+		GLint	pos =	glGetAttribLocation(shad.prog, "attrib_pos_world");
+		GLint	col =	glGetAttribLocation(shad.prog, "attrib_col");
+		
+		dbg_assert(pos >= 0);
+		dbg_assert(col >= 0);
+		
+		glEnableVertexAttribArray(pos);
+		glVertexAttribPointer(pos,	2, GL_FLOAT, GL_FALSE, sizeof(V), (void*)offsetof(V,pos_world));
+		glVertexAttribDivisor(pos, 1);
+		
+		glEnableVertexAttribArray(col);
+		glVertexAttribPointer(col,	4, GL_FLOAT, GL_FALSE, sizeof(V), (void*)offsetof(V,col));
+		glVertexAttribDivisor(col, 1);
+		
+	}
+	
+};
+struct Shader_Instanced_Particles : Basic_Shader {
+	Shader_Instanced_Particles (): Basic_Shader(
+// Vertex shader
+GLSL_VERSION R"_SHAD(
+	in		vec2	attrib_pos_world;
+	in		vec4	attrib_col;
+	out		vec4	color;
+	
+	uniform	mat4	world_to_clip;
+	uniform	int		segment_count;
+	
+	uniform	float	ra;
+	uniform	float	rb;
+	
+	uniform	float	px_size_world;
+	
+	mat2 rotate2 (float ang) {
+		float s = sin(ang);
+		float c = cos(ang);
+		return mat2(	+c, -c,
+						+s,	+c );
+	}
+	#define TAU			6.283185307179586476925286766559
+	#define RAD_360		TAU
+	
+	void main() {
+		int segment =	gl_VertexID / (3*3);
+		int id =		gl_VertexID % (3*3);
+		
+		float t0 = float(segment) / float(segment_count);
+		float t1 = float(segment +1) / float(segment_count);
+		
+		mat2 m0 = rotate2(t0 * RAD_360);
+		mat2 m1 = rotate2(t1 * RAD_360);
+		
+		float scale = 1;
+		if (px_size_world > 0.5) {
+			scale = px_size_world/0.5;
+		}
+		
+		vec2 a = vec2(0,ra * scale);
+		vec2 b = vec2(0,rb * scale);
+		
+		vec2 a0 = m0 * a;
+		vec2 b0 = m0 * b;
+		vec2 a1 = m1 * a;
+		vec2 b1 = m1 * b;
+		
+		vec2 off[3*3] = vec2[](vec2(0), a0,	a1,
+									a1,	a0,	b0,
+									b0,	b1,	a1 );
+		float alpha[3*3] = float[](	1,	1,	1,
+									1,	1,	0,
+									0,	0,	1 );
+		
+		gl_Position = world_to_clip * vec4(attrib_pos_world +off[id], 0.0, 1.0);
+		color = attrib_col * alpha[id];
+	}
+)_SHAD",
+// Fragment shader
+GLSL_VERSION R"_SHAD(
+	in		vec4	color;
+	out		vec4	frag_col;
+	
+	void main() {
+		frag_col = color;
+	}
+)_SHAD"
+	) {}
+	
+	// uniforms
+	Unif_fm4	world_to_clip;
+	Unif_s32	segment_count;
+	Unif_flt	ra;
+	Unif_flt	rb;
+	Unif_flt	px_size_world;
+	
+	void init () {
+		compile();
+		
+		world_to_clip.loc =		glGetUniformLocation(prog, "world_to_clip");
+		segment_count.loc =		glGetUniformLocation(prog, "segment_count");
+		ra.loc =				glGetUniformLocation(prog, "ra");
+		rb.loc =				glGetUniformLocation(prog, "rb");
+		px_size_world.loc =		glGetUniformLocation(prog, "px_size_world");
+		
+		dbg_assert(world_to_clip.loc >= 0);
+		dbg_assert(segment_count.loc >= 0);
+		dbg_assert(ra.loc >= 0);
+		dbg_assert(rb.loc >= 0);
+		
+	}
+};
+
 static Font			font;
 
 #if 0
@@ -798,8 +957,8 @@ struct Particle_Sim {
 	Shader_World_Col	shad_world_col;
 	Shader_Clip_Tex_Col	shad_tex;
 	
-	VBO_Pos_Col			bg_quad_vbo;
-	VBO_Pos_Col			particles_vbo;
+	VBO_Pos_Col			vbo_bg_quad;
+	VBO_Pos_Col			vbo_particles;
 	
 	struct Particle {
 		v2	pos;
@@ -821,8 +980,8 @@ struct Particle_Sim {
 		shad_world_col.init();
 		shad_tex.init();
 		
-		bg_quad_vbo.init();
-		particles_vbo.init();
+		vbo_bg_quad.init();
+		vbo_particles.init();
 		
 		for (u32 i=0; i<particle_count; ++i) {
 			f32 s = (f32)i / (f32)(particle_count);		// [0,1)
@@ -916,8 +1075,8 @@ struct Particle_Sim {
 				{ world_radius*v2(-1,+1), col },
 			};
 			
-			bg_quad_vbo.upload({quad,6});
-			bg_quad_vbo.bind(shad_world_col);
+			vbo_bg_quad.upload({quad,6});
+			vbo_bg_quad.bind(shad_world_col);
 			
 			glDrawArrays(GL_TRIANGLES, 0, 6);
 		}
@@ -1012,8 +1171,8 @@ struct Particle_Sim {
 				}
 			}
 			
-			particles_vbo.upload(particles_data);
-			particles_vbo.bind(shad_world_col);
+			vbo_particles.upload(particles_data);
+			vbo_particles.bind(shad_world_col);
 			
 			glDrawArrays(GL_TRIANGLES, 0, particles_data.len);
 		}
@@ -1229,22 +1388,21 @@ struct Particle_Sim2 {
 	Shader_World_Col	shad_world_col;
 	Shader_Clip_Tex_Col	shad_tex;
 	
-	VBO_Pos_Col			bg_quad_vbo;
-	VBO_Pos_Col			particles_vbo;
+	VBO_Pos_Col			vbo_bg_quad;
 	
-	struct Particle {
-		v2	pos;
-		v2	vel;
-		f32	mass;
-		v3	col;
-	};
+	Shader_Instanced_Particles	shad_part;
+	VBO_Instanced_Particles	vbo_part;
+	
 	v2 world_radius = v2(100);
 	
-	Particle particles[210]; // 8 tsteps: 210, 32 tsteps: 140
-	u32 particle_count = arrlenof(u32, particles);
+	typedef VBO_Instanced_Particles::V Particle;
+	
+	dynarr<Particle>	particles;
 	
 	void init  () {
 		cam = { v2(0), MAX(world_radius.x, world_radius.y)*1.1f };
+		
+		particles =	dynarr<Particle>::malloc(0 ? 160 : 2); // 8 tsteps: 210, 32 tsteps: 140
 		
 		//glfwSetWindowPos(wnd, 1920-1000 -16, 35);
 		glfwShowWindow(wnd);
@@ -1252,32 +1410,53 @@ struct Particle_Sim2 {
 		shad_world_col.init();
 		shad_tex.init();
 		
-		bg_quad_vbo.init();
-		particles_vbo.init();
+		vbo_bg_quad.init();
 		
-		for (u32 i=0; i<particle_count; ++i) {
-			f32 s = (f32)i / (f32)(particle_count);		// [0,1)
-			f32 t = (f32)i / (f32)(particle_count -1);	// [0,1]
+		shad_part.init();
+		vbo_part.init();
+		
+		reset_particles();
+		
+	}
+	
+	void reset_particles () {
+		for (u32 i=0; i<particles.len; ++i) {
+			f32 s = (f32)i / (f32)(particles.len);		// [0,1)
+			f32 t = (f32)i / (f32)(particles.len -1);	// [0,1]
 			
-			#if 0
-			particles[i].pos = random::v2_n1p1() * world_radius;
-			particles[i].vel = random::v2_n1p1() * v2(5.0f);
+			#if 1
+			particles[i].pos_world = random::v2_n1p1() * world_radius;
+			particles[i].vel_world = random::v2_n1p1() * v2(5.0f);
 			#else
 			f32 r = world_radius.x * lerp(0.7f, 0.8f, random::f32_01());
 			//f32 r = world_radius.x * 0.75f;
 			
-			particles[i].pos = (rotate2(s*deg(360)) * v2(r, 0));
-			particles[i].vel = rotate2(s*deg(360)) * v2(0, +19.0f);
+			particles[i].pos_world = (rotate2(s*deg(360)) * v2(r, 0));
+			particles[i].vel_world = rotate2(s*deg(360)) * v2(0, +19.0f);
 			#endif
 			
-			particles[i].mass = 0.5f;
-			
-			particles[i].col = hsl_to_rgb( {random::f32_01(), 1, 0.5f} );
+			particles[i].col = v4( hsl_to_rgb( v3(random::f32_01(), 1, 0.5f) ), 0.75f);
 		}
-		
 	}
 	
 	void frame (f64 t, f32 dt) {
+		//
+		if (button_went_down(B_R)) {
+			reset_particles();
+		}
+		// Spawn new particles with LMB
+		if (button_went_down(B_LMB)) {
+			assert(cursor_in_wnd);
+			
+			particles.push( Particle{cursor_pos_world, 0, v4(0,1,0,1)} );
+			
+		}
+		if (button_is_down(B_LMB)) {
+			particles[ particles.len-1 ].pos_world = cursor_pos_world;
+		}
+		if (button_went_up(B_LMB)) {
+			// release new particle
+		}
 		
 		v2 total_vel;
 		
@@ -1286,10 +1465,10 @@ struct Particle_Sim2 {
 		for (u32 tstep=0; tstep<tsteps*taccel; ++tstep) {
 			dt = 1.0f / (60.0f*tsteps);
 			//dt = 1.0f / (6000.0f*tsteps);
-			dt = 0;
+			//dt = 0;
 			
 			total_vel = v2(0);
-			for (u32 i=0; i<particle_count; ++i) {
+			for (u32 i=0; i<particles.len; ++i) {
 				auto& p = particles[i];
 				
 				//f32 wall_force_scale = 100 * 100;
@@ -1301,8 +1480,8 @@ struct Particle_Sim2 {
 				//					+wall_t_force + -wall_b_force );
 				v2 grav_force = v2(0);
 				{
-					for (u32 i=0; i<particle_count; ++i) {
-						v2 dir = particles[i].pos -p.pos;
+					for (u32 i=0; i<particles.len; ++i) {
+						v2 dir = particles[i].pos_world -p.pos_world;
 						f32 dist = length(dir);
 						if (dist < 1.7f) continue;
 						dir = dir / v2(dist);
@@ -1313,13 +1492,12 @@ struct Particle_Sim2 {
 				
 				v2 force = /*wall_force +*/grav_force;
 				
-				v2 massv = v2(p.mass);
-				v2 accel = force / massv;
+				v2 accel = force;
 				
-				p.vel += accel * v2(dt);
-				p.pos += p.vel * v2(dt);
+				p.vel_world += accel * v2(dt);
+				p.pos_world += p.vel_world * v2(dt);
 				
-				total_vel += p.vel;
+				total_vel += p.vel_world;
 			}
 		}
 		//printf("total vel: %f {%f,%f}\n", length(total_vel), total_vel.x, total_vel.y);
@@ -1332,10 +1510,10 @@ struct Particle_Sim2 {
 		glClearColor(background_col.x, background_col.y, background_col.z, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
 		
-		shad_world_col.bind();
-		shad_world_col.world_to_clip.set( cam.world_to_clip );
-		
 		{ // world quad highlighted a bit
+			shad_world_col.bind();
+			shad_world_col.world_to_clip.set( cam.world_to_clip );
+			
 			v4 col = world_rect_col;
 			
 			VBO_Pos_Col::V quad[6] = {
@@ -1347,82 +1525,35 @@ struct Particle_Sim2 {
 				{ world_radius*v2(-1,+1), col },
 			};
 			
-			bg_quad_vbo.upload({quad,6});
-			bg_quad_vbo.bind(shad_world_col);
+			vbo_bg_quad.upload({quad,6});
+			vbo_bg_quad.bind(shad_world_col);
 			
-			glDrawArrays(GL_TRIANGLES, 0, 6);
+			glDrawArrays(GL_TRIANGLES, 0, 6); // TODO: BUG: this only get's rendered on the first frame?
 		}
 		
 		{
+			shad_part.bind();
+			shad_part.world_to_clip.set( cam.world_to_clip );
 			
 			v2 px_size_world = inverse( cam.world_to_clip.m2() ) * (1 / (v2)wnd_dim);
 			dbg_assert( px_size_world.x/px_size_world.y > 0.99f, "%f %f", px_size_world.x, px_size_world.y );
 			
+			vbo_part.upload(particles);
+			vbo_part.bind(shad_part);
+			
 			f32 ra = 0.5f;
-			f32 rb = 1.2f;
+			f32 rb = 0.8f;
 			
-			f32 A = 0.75f;
+			s32 segment_count = 16;
+			s32 vertex_count = segment_count * 3*3;
 			
-			constexpr u32 segments = 16;
-			dbg_assert(segments >= 3);
+			shad_part.segment_count.set( segment_count );
+			shad_part.ra.set( ra );
+			shad_part.rb.set( rb );
 			
-			constexpr u32 vert_count = segments * 3*3;
+			shad_part.px_size_world.set( px_size_world.x );
 			
-			struct Vertex {
-				v2	offs;
-				f32	alpha;
-			};
-			Vertex circle_data[vert_count];
-			{
-				Vertex* cur = circle_data;
-				
-				for (u32 i=0; i<segments; ++i) {
-					f32 t0 = (f32)(i+0) / (f32)segments;
-					f32 t1 = (f32)(i+1) / (f32)segments;
-					
-					v2 a = v2(0,ra);
-					v2 b = v2(0,rb);
-					
-					m2 m0 = rotate2(t0 * RAD_360);
-					m2 m1 = rotate2(t1 * RAD_360);
-					
-					v2 a0 = m0 * a;
-					v2 a1 = m1 * a;
-					v2 b0 = m0 * b;
-					v2 b1 = m1 * b;
-					
-					cur[0] = { v2(0),	A };
-					cur[1] = { a0,		A };
-					cur[2] = { a1,		A };
-					
-					cur[3] = { b0,		0 };
-					cur[4] = { a1,		A };
-					cur[5] = { a0,		A };
-					
-					cur[6] = { a1,		A };
-					cur[7] = { b0,		0 };
-					cur[8] = { b1,		0 };
-					
-					cur += 9;
-				}
-			}
-			
-			auto particles_data = array<VBO_Pos_Col::V>::malloc(particle_count*arrlenof(u32,circle_data));
-			defer { particles_data.free(); };
-			
-			auto* out = &particles_data[0];
-			for (u32 i=0; i<particle_count; ++i) {
-				for (u32 j=0; j<arrlenof(u32,circle_data); ++j) {
-					out->pos = circle_data[j].offs +particles[i].pos;
-					out->col = v4(particles[i].col, circle_data[j].alpha);
-					++out;
-				}
-			}
-			
-			particles_vbo.upload(particles_data);
-			particles_vbo.bind(shad_world_col);
-			
-			glDrawArrays(GL_TRIANGLES, 0, particles_data.len);
+			glDrawArraysInstanced(GL_TRIANGLES, 0, vertex_count, particles.len);
 		}
 	}
 	
@@ -1442,6 +1573,12 @@ int main (int argc, char** argv) {
 	glfwSwapInterval(1);
 	
 	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+	
+	{ // for ogl 3.3 and up (i'm not using vaos)
+		GLuint vao;
+		glGenVertexArrays(1, &vao);
+		glBindVertexArray(vao);
+	}
 	
 	font.init();
 	
@@ -1489,6 +1626,9 @@ int main (int argc, char** argv) {
 		}
 		
 		{
+			cursor_in_wnd =	   cursor_pos.x >= 0 && cursor_pos.x < wnd_dim.x
+							&& cursor_pos.y >= 0 && cursor_pos.y < wnd_dim.y;
+			
 			auto calc_world_to_clip = [] () {
 				f32 radius_scale = 1.0f / cam.radius;
 				v2 scale;
@@ -1501,8 +1641,16 @@ int main (int argc, char** argv) {
 				cam.world_to_clip = scale4(v3(scale, 1)) * translate4(v3(-cam.pos_world, 0));
 			};
 			
-			bool cursor_in_wnd =	   cursor_pos.x >= 0 && cursor_pos.x < wnd_dim.x
-									&& cursor_pos.y >= 0 && cursor_pos.y < wnd_dim.y;
+			// TODO: is it possible to not calculate this 3 times per frame without changing the behavoir?
+			calc_world_to_clip();
+			
+			v2 tmp2;
+			{
+				m2 clip_to_cam2 = inverse( cam.world_to_clip.m2() );
+				
+				v2 clip = ((v2)cursor_pos / (v2)wnd_dim -0.5f) * v2(2,-2); // mouse cursor points to upper left corner of pixel, so no pixel center calculation here
+				tmp2 = clip_to_cam2 * clip +cam.pos_world;
+			}
 			
 			{
 				f32 tmp = log2(cam.radius);
@@ -1510,33 +1658,31 @@ int main (int argc, char** argv) {
 				cam.radius = pow(2.0f, tmp);
 			}
 			
-			calc_world_to_clip(); // to fix problem with zooming and dragging at the same time
+			calc_world_to_clip();
 			
 			if (!dragging) {
 				if (cursor_in_wnd && button_is_down(B_RMB)) {
-					
-					m2 clip_to_cam2 = inverse( cam.world_to_clip.m2() );
-					
-					v2 clip = ((v2)cursor_pos / (v2)wnd_dim -0.5f) * v2(2,-2); // mouse cursor points to upper left corner of pixel, so no pixel center calculation here
-					dragging_grab_pos_world = clip_to_cam2 * clip +cam.pos_world;
-					
+					dragging_grab_pos_world = tmp2;
 					dragging = true;
 				}
 			} else {
 				if (button_is_up(B_RMB)) {
 					dragging = false;
 				}
-				
+				tmp2 = dragging_grab_pos_world;
+			}
+			
+			{
 				m2 clip_to_cam2 = inverse( cam.world_to_clip.m2() );
 				
 				v2 clip = ((v2)cursor_pos / (v2)wnd_dim -0.5f) * v2(2,-2); // mouse cursor points to upper left corner of pixel, so no pixel center calculation here
 				
-				cam.pos_world = -(clip_to_cam2 * clip) +dragging_grab_pos_world; // TODO: seems to have what i think is 1 frame of latency even without vsync (at 17-fps), is this the desktop compistor or do i have a latency in my calculation?
-				
-				//printf(">>> %f %f\n", cam_.x,cam_.y);
+				cam.pos_world = -(clip_to_cam2 * clip) +tmp2;
 			}
 			
 			calc_world_to_clip();
+			
+			cursor_pos_world = tmp2; // already out of date value?, should overthink this algorithm
 			
 		}
 		

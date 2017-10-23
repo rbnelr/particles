@@ -188,16 +188,22 @@ struct array {
 	
 };
 
-#if 0
+// TODO: Test this
 template <typename T, typename LEN_T=u32>
 struct dynarr : array<T, LEN_T> {
 	
+	static dynarr malloc (LEN_T new_len) {
+		dynarr ret = {};
+		ret.realloc(new_len);
+		return ret;
+	}
 	void realloc (LEN_T new_len) {
 		this->arr = (T*)::realloc(this->arr, new_len*sizeof(T));
+		len = new_len;
 	}
 	
 	T* grow_by (LEN_T diff) {
-		LEN_T old_len;
+		LEN_T old_len = len;
 		realloc(this->len +diff);
 		return &this->arr[old_len];
 	}
@@ -209,6 +215,7 @@ struct dynarr : array<T, LEN_T> {
 		return push() = val;
 	}
 	
+	#if 0
 	T* pushn (LEN_T count) {
 		LEN_T old_len = this->len;
 		grow_by(count);
@@ -219,6 +226,6 @@ struct dynarr : array<T, LEN_T> {
 		grow_by(count);
 		return copy_values(old_len, val, count);
 	}
+	#endif
 	
 };
-#endif
