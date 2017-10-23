@@ -1225,6 +1225,209 @@ struct Spring_Test {
 };
 #endif
 
+struct Particle_Sim2 {
+	Shader_World_Col	shad_world_col;
+	Shader_Clip_Tex_Col	shad_tex;
+	
+	VBO_Pos_Col			bg_quad_vbo;
+	VBO_Pos_Col			particles_vbo;
+	
+	struct Particle {
+		v2	pos;
+		v2	vel;
+		f32	mass;
+		v3	col;
+	};
+	v2 world_radius = v2(100);
+	
+	Particle particles[210]; // 8 tsteps: 210, 32 tsteps: 140
+	u32 particle_count = arrlenof(u32, particles);
+	
+	void init  () {
+		cam = { v2(0), MAX(world_radius.x, world_radius.y)*1.1f };
+		
+		//glfwSetWindowPos(wnd, 1920-1000 -16, 35);
+		glfwShowWindow(wnd);
+		
+		shad_world_col.init();
+		shad_tex.init();
+		
+		bg_quad_vbo.init();
+		particles_vbo.init();
+		
+		for (u32 i=0; i<particle_count; ++i) {
+			f32 s = (f32)i / (f32)(particle_count);		// [0,1)
+			f32 t = (f32)i / (f32)(particle_count -1);	// [0,1]
+			
+			#if 0
+			particles[i].pos = random::v2_n1p1() * world_radius;
+			particles[i].vel = random::v2_n1p1() * v2(5.0f);
+			#else
+			f32 r = world_radius.x * lerp(0.7f, 0.8f, random::f32_01());
+			//f32 r = world_radius.x * 0.75f;
+			
+			particles[i].pos = (rotate2(s*deg(360)) * v2(r, 0));
+			particles[i].vel = rotate2(s*deg(360)) * v2(0, +19.0f);
+			#endif
+			
+			particles[i].mass = 0.5f;
+			
+			particles[i].col = hsl_to_rgb( {random::f32_01(), 1, 0.5f} );
+		}
+		
+	}
+	
+	void frame (f64 t, f32 dt) {
+		
+		v2 total_vel;
+		
+		u32 tsteps = 8;
+		u32 taccel = 1;
+		for (u32 tstep=0; tstep<tsteps*taccel; ++tstep) {
+			dt = 1.0f / (60.0f*tsteps);
+			//dt = 1.0f / (6000.0f*tsteps);
+			dt = 0;
+			
+			total_vel = v2(0);
+			for (u32 i=0; i<particle_count; ++i) {
+				auto& p = particles[i];
+				
+				//f32 wall_force_scale = 100 * 100;
+				//f32 wall_l_force = lerp(wall_force_scale,0, step(-world_radius.x-4,-world_radius.x+1, p.pos.x));
+				//f32 wall_r_force = lerp(wall_force_scale,0, step(+world_radius.x+4,+world_radius.x-1, p.pos.x));
+				//f32 wall_t_force = lerp(wall_force_scale,0, step(-world_radius.y-4,-world_radius.y+1, p.pos.y));
+				//f32 wall_b_force = lerp(wall_force_scale,0, step(+world_radius.y+4,+world_radius.y-1, p.pos.y));
+				//v2 wall_force = v2(	+wall_l_force + -wall_r_force,
+				//					+wall_t_force + -wall_b_force );
+				v2 grav_force = v2(0);
+				{
+					for (u32 i=0; i<particle_count; ++i) {
+						v2 dir = particles[i].pos -p.pos;
+						f32 dist = length(dir);
+						if (dist < 1.7f) continue;
+						dir = dir / v2(dist);
+						
+						grav_force += dir * v2(200.0f / (dist*dist));
+					}
+				}
+				
+				v2 force = /*wall_force +*/grav_force;
+				
+				v2 massv = v2(p.mass);
+				v2 accel = force / massv;
+				
+				p.vel += accel * v2(dt);
+				p.pos += p.vel * v2(dt);
+				
+				total_vel += p.vel;
+			}
+		}
+		//printf("total vel: %f {%f,%f}\n", length(total_vel), total_vel.x, total_vel.y);
+		
+		v4 world_rect_col = v4( srgb(41,49,52) * 0.5f, 1 );
+		v3 background_col = world_rect_col.xyz() * v3(0.8f);
+		
+		glViewport(0, 0, wnd_dim.x, wnd_dim.y);
+		
+		glClearColor(background_col.x, background_col.y, background_col.z, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT);
+		
+		shad_world_col.bind();
+		shad_world_col.world_to_clip.set( cam.world_to_clip );
+		
+		{ // world quad highlighted a bit
+			v4 col = world_rect_col;
+			
+			VBO_Pos_Col::V quad[6] = {
+				{ world_radius*v2(+1,-1), col },
+				{ world_radius*v2(+1,+1), col },
+				{ world_radius*v2(-1,-1), col },
+				{ world_radius*v2(-1,-1), col },
+				{ world_radius*v2(+1,+1), col },
+				{ world_radius*v2(-1,+1), col },
+			};
+			
+			bg_quad_vbo.upload({quad,6});
+			bg_quad_vbo.bind(shad_world_col);
+			
+			glDrawArrays(GL_TRIANGLES, 0, 6);
+		}
+		
+		{
+			
+			v2 px_size_world = inverse( cam.world_to_clip.m2() ) * (1 / (v2)wnd_dim);
+			dbg_assert( px_size_world.x/px_size_world.y > 0.99f, "%f %f", px_size_world.x, px_size_world.y );
+			
+			f32 ra = 0.5f;
+			f32 rb = 1.2f;
+			
+			f32 A = 0.75f;
+			
+			constexpr u32 segments = 16;
+			dbg_assert(segments >= 3);
+			
+			constexpr u32 vert_count = segments * 3*3;
+			
+			struct Vertex {
+				v2	offs;
+				f32	alpha;
+			};
+			Vertex circle_data[vert_count];
+			{
+				Vertex* cur = circle_data;
+				
+				for (u32 i=0; i<segments; ++i) {
+					f32 t0 = (f32)(i+0) / (f32)segments;
+					f32 t1 = (f32)(i+1) / (f32)segments;
+					
+					v2 a = v2(0,ra);
+					v2 b = v2(0,rb);
+					
+					m2 m0 = rotate2(t0 * RAD_360);
+					m2 m1 = rotate2(t1 * RAD_360);
+					
+					v2 a0 = m0 * a;
+					v2 a1 = m1 * a;
+					v2 b0 = m0 * b;
+					v2 b1 = m1 * b;
+					
+					cur[0] = { v2(0),	A };
+					cur[1] = { a0,		A };
+					cur[2] = { a1,		A };
+					
+					cur[3] = { b0,		0 };
+					cur[4] = { a1,		A };
+					cur[5] = { a0,		A };
+					
+					cur[6] = { a1,		A };
+					cur[7] = { b0,		0 };
+					cur[8] = { b1,		0 };
+					
+					cur += 9;
+				}
+			}
+			
+			auto particles_data = array<VBO_Pos_Col::V>::malloc(particle_count*arrlenof(u32,circle_data));
+			defer { particles_data.free(); };
+			
+			auto* out = &particles_data[0];
+			for (u32 i=0; i<particle_count; ++i) {
+				for (u32 j=0; j<arrlenof(u32,circle_data); ++j) {
+					out->pos = circle_data[j].offs +particles[i].pos;
+					out->col = v4(particles[i].col, circle_data[j].alpha);
+					++out;
+				}
+			}
+			
+			particles_vbo.upload(particles_data);
+			particles_vbo.bind(shad_world_col);
+			
+			glDrawArrays(GL_TRIANGLES, 0, particles_data.len);
+		}
+	}
+	
+};
+
 int main (int argc, char** argv) {
 	
 	//random::init_same_seed_everytime();
@@ -1243,9 +1446,13 @@ int main (int argc, char** argv) {
 	font.init();
 	
 	#if 0
-	Spring_Test game = Spring_Test();
+		#if 0
+		Spring_Test game = Spring_Test();
+		#else
+		Particle_Sim game = Particle_Sim();
+		#endif
 	#else
-	Particle_Sim game = Particle_Sim();
+	Particle_Sim2 game = Particle_Sim2();
 	#endif
 	
 	game.init();
